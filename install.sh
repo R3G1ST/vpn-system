@@ -34,7 +34,9 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Variables
+# Default values
+DOMAIN="${1:-vpn.example.com}"
+EMAIL="${2:-admin@example.com}"
 INSTALL_DIR="/opt/xferant-vpn"
 REPO_URL="https://github.com/R3G1ST/vpn-system.git"
 
@@ -42,23 +44,69 @@ log_info() { echo -e "${GREEN}✅ [INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}⚠️ [WARN]${NC} $1"; }
 log_error() { echo -e "${RED}❌ [ERROR]${NC} $1"; }
 
-# Check if parameters provided
-if [ $# -eq 2 ]; then
-    DOMAIN="$1"
-    EMAIL="$2"
-    AUTO_MODE=true
-else
-    AUTO_MODE=false
-fi
+# Check if running in terminal (interactive mode)
+is_interactive() {
+    [ -t 0 ]
+}
+
+get_user_input() {
+    if is_interactive; then
+        echo -e "${CYAN}📝 Configuration Setup${NC}"
+        echo ""
+        
+        # Domain input
+        local input_domain=""
+        while [ -z "$input_domain" ]; do
+            echo -n "🌐 Enter your domain (e.g., vpn.yourdomain.com): "
+            read input_domain
+            if [ -z "$input_domain" ]; then
+                log_error "Domain name cannot be empty"
+            fi
+        done
+        DOMAIN="$input_domain"
+        
+        # Email input
+        local input_email=""
+        while [ -z "$input_email" ]; do
+            echo -n "📧 Enter your email (for SSL certificates): "
+            read input_email
+            if [ -z "$input_email" ]; then
+                log_error "Email cannot be empty"
+            elif [[ ! "$input_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+                log_error "Please enter a valid email address"
+                input_email=""
+            fi
+        done
+        EMAIL="$input_email"
+        
+        # Confirmation
+        echo ""
+        echo -e "${YELLOW}📋 Installation Summary${NC}"
+        echo "   Domain: https://$DOMAIN"
+        echo "   Email: $EMAIL"
+        echo "   Directory: $INSTALL_DIR"
+        echo ""
+        echo -n "Proceed with installation? (y/N): "
+        read confirmation
+        if [ "$confirmation" != "y" ] && [ "$confirmation" != "Y" ]; then
+            log_info "Installation cancelled by user"
+            exit 0
+        fi
+    else
+        # Non-interactive mode - use defaults or parameters
+        log_info "Non-interactive mode detected"
+        log_info "Using Domain: $DOMAIN"
+        log_info "Using Email: $EMAIL"
+        echo ""
+        log_info "To customize, run: sudo ./install.sh yourdomain.com your@email.com"
+        echo ""
+    fi
+}
 
 main() {
     log_info "Starting Xferant VPN automated installation..."
     
-    if [ "$AUTO_MODE" = false ]; then
-        get_user_input
-    else
-        log_info "Auto mode: Domain=$DOMAIN, Email=$EMAIL"
-    fi
+    get_user_input
     
     # Installation steps
     check_system
@@ -71,53 +119,6 @@ main() {
     
     log_info "🎉 Xferant VPN installed successfully!"
     show_success_message
-}
-
-get_user_input() {
-    echo -e "${CYAN}📝 Configuration Setup${NC}"
-    echo ""
-    
-    # Use parameters if provided via command line
-    if [ $# -eq 2 ]; then
-        DOMAIN="$1"
-        EMAIL="$2"
-        return
-    fi
-    
-    # Domain input
-    while [ -z "$DOMAIN" ]; do
-        echo -n "🌐 Enter your domain (e.g., vpn.yourdomain.com): "
-        read DOMAIN
-        if [ -z "$DOMAIN" ]; then
-            log_error "Domain name cannot be empty"
-        fi
-    done
-    
-    # Email input
-    while [ -z "$EMAIL" ]; do
-        echo -n "📧 Enter your email (for SSL certificates): "
-        read EMAIL
-        if [ -z "$EMAIL" ]; then
-            log_error "Email cannot be empty"
-        elif [[ ! "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-            log_error "Please enter a valid email address"
-            EMAIL=""
-        fi
-    done
-    
-    # Confirmation
-    echo ""
-    echo -e "${YELLOW}📋 Installation Summary${NC}"
-    echo "   Domain: https://$DOMAIN"
-    echo "   Email: $EMAIL"
-    echo "   Directory: $INSTALL_DIR"
-    echo ""
-    echo -n "Proceed with installation? (y/N): "
-    read confirmation
-    if [ "$confirmation" != "y" ] && [ "$confirmation" != "Y" ]; then
-        log_info "Installation cancelled by user"
-        exit 0
-    fi
 }
 
 check_system() {
@@ -165,11 +166,11 @@ install_dependencies() {
         log_info "Docker is already installed"
     fi
     
-    # Install Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
-        log_info "Installing Docker Compose..."
-        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
+    # Install Docker Compose Plugin (new way)
+    if ! docker compose version &> /dev/null; then
+        log_info "Installing Docker Compose Plugin..."
+        apt-get update
+        apt-get install -y docker-compose-plugin
     else
         log_info "Docker Compose is already installed"
     fi
@@ -203,9 +204,6 @@ POSTGRES_PASSWORD=$(openssl rand -base64 32)
 # Security
 JWT_SECRET=$(openssl rand -base64 64)
 API_SECRET_KEY=$(openssl rand -base64 48)
-
-# Xray-core
-XRAY_CONFIG_DIR=/etc/xray
 EOF
 
     log_info "Environment configuration created"
@@ -231,23 +229,23 @@ start_services() {
     
     cd $INSTALL_DIR
     
-    # Start services
-    docker-compose up -d
+    # Use docker compose (new syntax)
+    docker compose up -d
     
     # Wait for services to start
-    sleep 30
+    sleep 10
+    
+    # Check if services are running
+    if docker compose ps | grep -q "Up"; then
+        log_info "All services are running"
+    else
+        log_warn "Some services may need attention"
+        docker compose logs
+    fi
 }
 
 finalize_installation() {
     log_info "Finalizing installation..."
-    
-    # Create startup script
-    cat > /usr/local/bin/xferant-vpn << EOF
-#!/bin/bash
-cd $INSTALL_DIR
-docker-compose "\$@"
-EOF
-    chmod +x /usr/local/bin/xferant-vpn
     
     log_info "Installation finalized"
 }
@@ -261,20 +259,19 @@ show_success_message() {
     echo -e "   API Server: https://$DOMAIN/api"
     echo ""
     echo -e "${YELLOW}🔧 Management Commands:${NC}"
-    echo -e "   Start: docker-compose start"
-    echo -e "   Stop: docker-compose stop"
-    echo -e "   Logs: docker-compose logs -f"
+    echo -e "   Start: cd $INSTALL_DIR && docker compose start"
+    echo -e "   Stop: cd $INSTALL_DIR && docker compose stop"
+    echo -e "   Logs: cd $INSTALL_DIR && docker compose logs -f"
+    echo ""
+    echo -e "${BLUE}📚 Next Steps:${NC}"
+    echo -e "   1. Configure DNS for $DOMAIN to point to this server"
+    echo -e "   2. Wait a few minutes for services to fully start"
+    echo -e "   3. Access the panel and configure your settings"
     echo ""
 }
 
 # Error handling
 trap 'log_error "Installation failed"; exit 1' ERR
 
-# Run main function with parameters if provided
-if [ $# -eq 2 ]; then
-    DOMAIN="$1"
-    EMAIL="$2"
-    main
-else
-    main "$@"
-fi
+# Run main function
+main "$@"
