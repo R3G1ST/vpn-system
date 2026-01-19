@@ -1,17 +1,16 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21-alpine
 
 WORKDIR /app
+
+# Копируем только необходимые файлы
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Копируем остальные файлы
 COPY . .
-RUN go build -o main .
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/main .
-COPY --from=builder /app/.env.example .env
+# Сборка
+RUN go build -o main .
 
 EXPOSE 8080
 CMD ["./main"]
