@@ -5,7 +5,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
       - frontend_static:/usr/share/nginx/html:ro
@@ -17,10 +17,13 @@ services:
       - xferant-network
     command: >
       sh -c '
-      while [ ! -f /etc/letsencrypt/live/new.xferant-vpn.ru/fullchain.pem ]; do
-        echo "Waiting for SSL certificates...";
-        sleep 5;
-      done;
+      echo "Starting nginx...";
+      if [ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
+        echo "SSL certificates found, using HTTPS";
+      else
+        echo "No SSL certificates found, waiting...";
+        sleep 30;
+      fi;
       exec nginx -g "daemon off;"
       '
 
@@ -36,28 +39,22 @@ services:
     networks:
       - xferant-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} || exit 0"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
       start_period: 30s
 
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - JWT_SECRET=${JWT_SECRET}
-      - API_SECRET_KEY=${API_SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - SERVER_ADDRESS=:8080
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
-      - DB_SSL_MODE=disable
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      API_SECRET_KEY: ${API_SECRET_KEY}
+      DOMAIN: ${DOMAIN}
+      SERVER_ADDRESS: :8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,18 +66,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile
     environment:
-      - REACT_APP_API_URL=https://${DOMAIN}/api
-      - REACT_APP_DOMAIN=${DOMAIN}
-    depends_on:
-      - backend
+      VITE_API_URL: https://${DOMAIN}/api
+      VITE_WS_URL: wss://${DOMAIN}/ws
     volumes:
       - frontend_static:/usr/share/nginx/html
+    depends_on:
+      - backend
     restart: unless-stopped
     networks:
       - xferant-network
@@ -127,6 +125,3 @@ volumes:
 networks:
   xferant-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16

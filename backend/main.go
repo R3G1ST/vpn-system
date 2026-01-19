@@ -1,21 +1,35 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"net/http"
+	"xferant-vpn/backend/internal/api"
+	"xferant-vpn/backend/internal/config"
+	"xferant-vpn/backend/internal/database"
 )
 
 func main() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Xferant VPN Backend is running!")
-	})
-
-	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status": "ok"}`)
-	})
-
-	log.Println("Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Загрузка конфигурации
+	cfg := config.Load()
+	
+	log.Printf("Starting Xferant VPN Backend v1.0.0")
+	log.Printf("Server address: %s", cfg.Server.Address)
+	log.Printf("Database: %s@%s:%s/%s", 
+		cfg.Database.User, 
+		cfg.Database.Host, 
+		cfg.Database.Port, 
+		cfg.Database.DBName)
+	
+	// Подключение к БД
+	db, err := database.Init(cfg.Database)
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	
+	// Инициализация сервера
+	server := api.NewServer(cfg, db)
+	
+	log.Printf("Server starting on %s", cfg.Server.Address)
+	if err := server.Start(); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
