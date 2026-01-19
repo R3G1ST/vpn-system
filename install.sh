@@ -35,8 +35,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Default values
-DOMAIN="${1:-vpn.example.com}"
-EMAIL="${2:-admin@example.com}"
+DOMAIN=""
+EMAIL=""
 INSTALL_DIR="/opt/xferant-vpn"
 REPO_URL="https://github.com/R3G1ST/vpn-system.git"
 
@@ -44,62 +44,53 @@ log_info() { echo -e "${GREEN}✅ [INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}⚠️ [WARN]${NC} $1"; }
 log_error() { echo -e "${RED}❌ [ERROR]${NC} $1"; }
 
-# Check if running in terminal (interactive mode)
-is_interactive() {
-    [ -t 0 ]
+# Function to generate safe password (without + and /)
+generate_safe_password() {
+    openssl rand -base64 $1 | tr -d '+/' | head -c $2
 }
 
+# Interactive input function
 get_user_input() {
-    if is_interactive; then
-        echo -e "${CYAN}📝 Configuration Setup${NC}"
-        echo ""
-        
-        # Domain input
-        local input_domain=""
-        while [ -z "$input_domain" ]; do
-            echo -n "🌐 Enter your domain (e.g., vpn.yourdomain.com): "
-            read input_domain
-            if [ -z "$input_domain" ]; then
-                log_error "Domain name cannot be empty"
-            fi
-        done
-        DOMAIN="$input_domain"
-        
-        # Email input
-        local input_email=""
-        while [ -z "$input_email" ]; do
-            echo -n "📧 Enter your email (for SSL certificates): "
-            read input_email
-            if [ -z "$input_email" ]; then
-                log_error "Email cannot be empty"
-            elif [[ ! "$input_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-                log_error "Please enter a valid email address"
-                input_email=""
-            fi
-        done
-        EMAIL="$input_email"
-        
-        # Confirmation
-        echo ""
-        echo -e "${YELLOW}📋 Installation Summary${NC}"
-        echo "   Domain: https://$DOMAIN"
-        echo "   Email: $EMAIL"
-        echo "   Directory: $INSTALL_DIR"
-        echo ""
-        echo -n "Proceed with installation? (y/N): "
-        read confirmation
-        if [ "$confirmation" != "y" ] && [ "$confirmation" != "Y" ]; then
-            log_info "Installation cancelled by user"
-            exit 0
+    echo -e "${CYAN}📝 Configuration Setup${NC}"
+    echo ""
+    
+    # Domain input
+    local input_domain=""
+    while [ -z "$input_domain" ]; do
+        echo -n "🌐 Enter your domain (e.g., vpn.yourdomain.com): "
+        read input_domain
+        if [ -z "$input_domain" ]; then
+            log_error "Domain name cannot be empty"
         fi
-    else
-        # Non-interactive mode - use defaults or parameters
-        log_info "Non-interactive mode detected"
-        log_info "Using Domain: $DOMAIN"
-        log_info "Using Email: $EMAIL"
-        echo ""
-        log_info "To customize, run: sudo ./install.sh yourdomain.com your@email.com"
-        echo ""
+    done
+    DOMAIN="$input_domain"
+    
+    # Email input
+    local input_email=""
+    while [ -z "$input_email" ]; do
+        echo -n "📧 Enter your email (for SSL certificates): "
+        read input_email
+        if [ -z "$input_email" ]; then
+            log_error "Email cannot be empty"
+        elif [[ ! "$input_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            log_error "Please enter a valid email address"
+            input_email=""
+        fi
+    done
+    EMAIL="$input_email"
+    
+    # Confirmation
+    echo ""
+    echo -e "${YELLOW}📋 Installation Summary${NC}"
+    echo "   Domain: https://$DOMAIN"
+    echo "   Email: $EMAIL"
+    echo "   Directory: $INSTALL_DIR"
+    echo ""
+    echo -n "Proceed with installation? (y/N): "
+    read confirmation
+    if [ "$confirmation" != "y" ] && [ "$confirmation" != "Y" ]; then
+        log_info "Installation cancelled by user"
+        exit 0
     fi
 }
 
@@ -190,6 +181,11 @@ clone_repository() {
 setup_environment() {
     log_info "Setting up environment..."
     
+    # Generate safe passwords (without + and / characters)
+    POSTGRES_PASSWORD=$(generate_safe_password 32 32)
+    JWT_SECRET=$(generate_safe_password 64 64)
+    API_SECRET_KEY=$(generate_safe_password 48 48)
+    
     # Create .env file
     cat > .env << EOF
 # Xferant VPN Configuration
@@ -199,11 +195,27 @@ EMAIL=$EMAIL
 # Database
 POSTGRES_DB=xferant_vpn
 POSTGRES_USER=xferant_user
-POSTGRES_PASSWORD=$(openssl rand -base64 32)
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 # Security
-JWT_SECRET=$(openssl rand -base64 64)
-API_SECRET_KEY=$(openssl rand -base64 48)
+JWT_SECRET=$JWT_SECRET
+API_SECRET_KEY=$API_SECRET_KEY
+
+# Xray-core
+XRAY_CONFIG_DIR=/etc/xray
+
+# Payment Systems
+YOOKASSA_SHOP_ID=your_shop_id
+YOOKASSA_SECRET_KEY=your_secret_key
+CLOUDPAYMENTS_PUBLIC_KEY=your_public_key
+CLOUDPAYMENTS_SECRET_KEY=your_secret_key
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_WEBHOOK_URL=https://$DOMAIN/api/telegram/webhook
+
+# Deployment
+DEPLOYMENT_ENV=production
 EOF
 
     log_info "Environment configuration created"
@@ -229,23 +241,31 @@ start_services() {
     
     cd $INSTALL_DIR
     
-    # Use docker compose (new syntax)
-    docker compose up -d
+    # Fix docker-compose files (remove version line)
+    sed -i '/^version:/d' docker-compose.yml
+    sed -i '/^version:/d' docker-compose.prod.yml
+    
+    # Use docker compose (new syntax) with production config
+    docker compose -f docker-compose.prod.yml up -d
     
     # Wait for services to start
-    sleep 10
+    sleep 15
     
     # Check if services are running
-    if docker compose ps | grep -q "Up"; then
+    if docker compose -f docker-compose.prod.yml ps | grep -q "Up"; then
         log_info "All services are running"
     else
         log_warn "Some services may need attention"
-        docker compose logs
+        docker compose -f docker-compose.prod.yml logs --tail=50
     fi
 }
 
 finalize_installation() {
     log_info "Finalizing installation..."
+    
+    # Set proper permissions
+    chmod 600 $INSTALL_DIR/.env
+    chmod 600 $INSTALL_DIR/data/ssl/private/key.pem
     
     log_info "Installation finalized"
 }
@@ -257,21 +277,29 @@ show_success_message() {
     echo -e "${CYAN}🔗 Access URLs:${NC}"
     echo -e "   Control Panel: https://$DOMAIN"
     echo -e "   API Server: https://$DOMAIN/api"
+    echo -e "   VPN Server Port: 4443"
     echo ""
     echo -e "${YELLOW}🔧 Management Commands:${NC}"
-    echo -e "   Start: cd $INSTALL_DIR && docker compose start"
-    echo -e "   Stop: cd $INSTALL_DIR && docker compose stop"
-    echo -e "   Logs: cd $INSTALL_DIR && docker compose logs -f"
+    echo -e "   Start: cd $INSTALL_DIR && docker compose -f docker-compose.prod.yml start"
+    echo -e "   Stop: cd $INSTALL_DIR && docker compose -f docker-compose.prod.yml stop"
+    echo -e "   Logs: cd $INSTALL_DIR && docker compose -f docker-compose.prod.yml logs -f"
     echo ""
     echo -e "${BLUE}📚 Next Steps:${NC}"
     echo -e "   1. Configure DNS for $DOMAIN to point to this server"
     echo -e "   2. Wait a few minutes for services to fully start"
-    echo -e "   3. Access the panel and configure your settings"
+    echo -e "   3. Access https://$DOMAIN and configure your settings"
+    echo -e "   4. Open port 4443 in firewall for VPN connections"
+    echo -e "   5. Consider setting up Let's Encrypt for production SSL"
+    echo ""
+    echo -e "${PURPLE}⚠️  Important Security Notes:${NC}"
+    echo -e "   • Default credentials are in $INSTALL_DIR/.env"
+    echo -e "   • Change all passwords before production use"
+    echo -e "   • Configure firewall to allow only necessary ports"
     echo ""
 }
 
 # Error handling
-trap 'log_error "Installation failed"; exit 1' ERR
+trap 'log_error "Installation failed at line $LINENO"; exit 1' ERR
 
 # Run main function
 main "$@"

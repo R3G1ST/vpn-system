@@ -1,5 +1,3 @@
-# УДАЛЕНО: version: '3.8' (устаревший атрибут)
-
 services:
   postgres:
     image: postgres:15-alpine
