@@ -1,15 +1,10 @@
-version: '3.8'
-
 services:
   nginx:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./data/ssl/certs/cert.pem:/etc/ssl/certs/cert.pem:ro
-      - ./data/ssl/private/key.pem:/etc/ssl/private/key.pem:ro
       - frontend_static:/usr/share/nginx/html:ro
     depends_on:
       - frontend
@@ -17,24 +12,17 @@ services:
     restart: unless-stopped
     networks:
       - xferant-network
-
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-xferant_vpn}
-      POSTGRES_USER: ${POSTGRES_USER:-xferant_user}
+      POSTGRES_DB: xferant_vpn
+      POSTGRES_USER: xferant_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
       - xferant-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U xferant_user || exit 0"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -48,7 +36,6 @@ services:
     restart: unless-stopped
     networks:
       - xferant-network
-
   frontend:
     build:
       context: ./frontend
@@ -60,42 +47,22 @@ services:
     restart: unless-stopped
     networks:
       - xferant-network
-
   xray:
     image: teddysun/xray:latest
     ports:
       - "4443:4443"
     volumes:
       - ./config/xray-config.json:/etc/xray/config.json:ro
-      - ./data/ssl:/etc/ssl:ro
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
     networks:
       - xferant-network
-
-  updater:
-    image: alpine/git
-    volumes:
-      - /opt/xferant-vpn:/app
-      - /root/.ssh:/root/.ssh:ro
-    command: >
-      sh -c '
-      cd /app &&
-      git config --global --add safe.directory /app &&
-      git pull origin main --rebase &&
-      echo "✅ Repository updated from GitHub"
-      '
-    restart: "no"
-    networks:
-      - xferant-network
-
 volumes:
   postgres_data:
     driver: local
   frontend_static:
     driver: local
-
 networks:
   xferant-network:
     driver: bridge
