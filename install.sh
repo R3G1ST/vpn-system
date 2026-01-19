@@ -147,7 +147,6 @@ check_system() {
 install_dependencies() {
     log_info "Installing system dependencies..."
     
-    # Install Docker
     if ! command -v docker &> /dev/null; then
         log_info "Installing Docker..."
         curl -fsSL https://get.docker.com | sh
@@ -157,7 +156,6 @@ install_dependencies() {
         log_info "Docker is already installed"
     fi
     
-    # Install Docker Compose Plugin (new way)
     if ! docker compose version &> /dev/null; then
         log_info "Installing Docker Compose Plugin..."
         apt-get update
@@ -170,32 +168,17 @@ install_dependencies() {
 clone_repository() {
     log_info "Cloning Xferant VPN repository..."
     
-    # FIX: Сначала создаем директорию
     mkdir -p $INSTALL_DIR
     
-    # Сохраняем текущую директорию
     CURRENT_DIR=$(pwd)
-    
-    # Переходим в родительскую директорию
     cd $(dirname $INSTALL_DIR)
     
-    # Clean up previous installation
     rm -rf $INSTALL_DIR
     
-    # Clone repository
     git clone $REPO_URL $INSTALL_DIR
     
-    # Возвращаемся обратно
     cd $CURRENT_DIR
-    
-    # Переходим в директорию проекта
     cd $INSTALL_DIR
-    
-    # Удаляем старый docker-compose.prod.yml если он существует
-    if [ -f "docker-compose.prod.yml" ]; then
-        rm docker-compose.prod.yml
-        log_info "Removed duplicate docker-compose.prod.yml"
-    fi
 }
 
 setup_environment() {
@@ -203,12 +186,10 @@ setup_environment() {
     
     cd $INSTALL_DIR
     
-    # Generate safe passwords (without + and / characters)
     POSTGRES_PASSWORD=$(generate_safe_password 32 32)
     JWT_SECRET=$(generate_safe_password 64 64)
     API_SECRET_KEY=$(generate_safe_password 48 48)
     
-    # Create .env file
     cat > .env << EOF
 # Xferant VPN Configuration
 DOMAIN=$DOMAIN
@@ -223,21 +204,9 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 JWT_SECRET=$JWT_SECRET
 API_SECRET_KEY=$API_SECRET_KEY
 
-# Xray-core
-XRAY_CONFIG_DIR=/etc/xray
-
-# Payment Systems
-YOOKASSA_SHOP_ID=your_shop_id
-YOOKASSA_SECRET_KEY=your_secret_key
-CLOUDPAYMENTS_PUBLIC_KEY=your_public_key
-CLOUDPAYMENTS_SECRET_KEY=your_secret_key
-
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_WEBHOOK_URL=https://$DOMAIN/api/telegram/webhook
-
-# Deployment
-DEPLOYMENT_ENV=production
 EOF
 
     log_info "Environment configuration created"
@@ -248,10 +217,8 @@ setup_ssl() {
     
     cd $INSTALL_DIR
     
-    # Create SSL directories
     mkdir -p data/ssl/{certs,private}
     
-    # Generate self-signed certificate for initial setup
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout data/ssl/private/key.pem \
         -out data/ssl/certs/cert.pem \
@@ -265,53 +232,11 @@ start_services() {
     
     cd $INSTALL_DIR
     
-    # Убедимся что Dockerfile существуют
-    if [ ! -f "backend/Dockerfile" ]; then
-        log_warn "Creating missing backend Dockerfile..."
-        cat > backend/Dockerfile << 'DOCKERFILE'
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./main.go
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/main .
-RUN adduser -D -g '' appuser
-USER appuser
-EXPOSE 8080
-CMD ["./main"]
-DOCKERFILE
-    fi
-    
-    if [ ! -f "frontend/Dockerfile" ]; then
-        log_warn "Creating missing frontend Dockerfile..."
-        cat > frontend/Dockerfile << 'DOCKERFILE'
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-RUN npm run build
-FROM nginx:alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
-RUN chmod -R 755 /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-DOCKERFILE
-    fi
-    
-    # Используем docker compose (новая версия)
     docker compose up -d
     
-    # Wait for services to start
     log_info "Waiting for services to start (30 seconds)..."
     sleep 30
     
-    # Check if services are running
     if docker compose ps 2>/dev/null | grep -q "Up"; then
         log_info "✅ All services are running"
     else
@@ -325,11 +250,9 @@ finalize_installation() {
     
     cd $INSTALL_DIR
     
-    # Set proper permissions
     chmod 600 .env 2>/dev/null || true
     chmod 600 data/ssl/private/key.pem 2>/dev/null || true
     
-    # Create backup directory
     mkdir -p backups
     
     log_info "Installation finalized"
@@ -347,27 +270,17 @@ show_success_message() {
     echo -e "${YELLOW}🔧 Management Commands:${NC}"
     echo -e "   Start: cd $INSTALL_DIR && docker compose start"
     echo -e "   Stop: cd $INSTALL_DIR && docker compose stop"
-    echo -e "   Restart: cd $INSTALL_DIR && docker compose restart"
     echo -e "   Logs: cd $INSTALL_DIR && docker compose logs -f"
     echo -e "   Status: cd $INSTALL_DIR && docker compose ps"
     echo ""
     echo -e "${BLUE}📚 Next Steps:${NC}"
-    echo -e "   1. Configure DNS for $DOMAIN to point to this server"
-    echo -e "   2. Wait a few minutes for services to fully start"
-    echo -e "   3. Access https://$DOMAIN and configure your settings"
-    echo -e "   4. Open port 4443 in firewall for VPN connections"
-    echo -e "   5. Default credentials are in $INSTALL_DIR/.env"
-    echo ""
-    echo -e "${PURPLE}⚠️  Important Security Notes:${NC}"
-    echo -e "   • Change all passwords in $INSTALL_DIR/.env"
-    echo -e "   • Configure firewall to allow only ports 80, 443, 4443"
-    echo -e "   • Set up Let's Encrypt for production SSL"
-    echo -e "   • Configure payment systems before accepting payments"
+    echo -e "   1. Configure DNS for $DOMAIN"
+    echo -e "   2. Wait 2-3 minutes for full startup"
+    echo -e "   3. Access https://$DOMAIN"
+    echo -e "   4. Open ports 80, 443, 4443 in firewall"
     echo ""
 }
 
-# Error handling
 trap 'log_error "Installation failed at line $LINENO"; exit 1' ERR
 
-# Run main function
 main "$@"
