@@ -33,4 +33,4 @@
 
 ```bash
 # Скачайте и запустите установщик одной командой
-curl -fsSL https://raw.githubusercontent.com/xferant/vpn-system/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/R3G1ST/vpn-system/main/install.sh | sudo bash
