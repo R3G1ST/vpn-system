@@ -58,7 +58,7 @@ get_user_input() {
     local input_domain=""
     while [ -z "$input_domain" ]; do
         echo -n "🌐 Enter your domain (e.g., vpn.yourdomain.com): "
-        read input_domain
+        read -r input_domain
         if [ -z "$input_domain" ]; then
             log_error "Domain name cannot be empty"
         fi
@@ -69,7 +69,7 @@ get_user_input() {
     local input_email=""
     while [ -z "$input_email" ]; do
         echo -n "📧 Enter your email (for SSL certificates): "
-        read input_email
+        read -r input_email
         if [ -z "$input_email" ]; then
             log_error "Email cannot be empty"
         elif [[ ! "$input_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
@@ -87,7 +87,7 @@ get_user_input() {
     echo "   Directory: $INSTALL_DIR"
     echo ""
     echo -n "Proceed with installation? (y/N): "
-    read confirmation
+    read -r confirmation
     if [ "$confirmation" != "y" ] && [ "$confirmation" != "Y" ]; then
         log_info "Installation cancelled by user"
         exit 0
@@ -242,8 +242,8 @@ start_services() {
     cd $INSTALL_DIR
     
     # Fix docker-compose files (remove version line)
-    sed -i '/^version:/d' docker-compose.yml
-    sed -i '/^version:/d' docker-compose.prod.yml
+    sed -i '/^version:/d' docker-compose.yml 2>/dev/null || true
+    sed -i '/^version:/d' docker-compose.prod.yml 2>/dev/null || true
     
     # Use docker compose (new syntax) with production config
     docker compose -f docker-compose.prod.yml up -d
@@ -252,11 +252,11 @@ start_services() {
     sleep 15
     
     # Check if services are running
-    if docker compose -f docker-compose.prod.yml ps | grep -q "Up"; then
+    if docker compose -f docker-compose.prod.yml ps 2>/dev/null | grep -q "Up"; then
         log_info "All services are running"
     else
         log_warn "Some services may need attention"
-        docker compose -f docker-compose.prod.yml logs --tail=50
+        docker compose -f docker-compose.prod.yml logs --tail=50 2>/dev/null || true
     fi
 }
 
@@ -264,8 +264,8 @@ finalize_installation() {
     log_info "Finalizing installation..."
     
     # Set proper permissions
-    chmod 600 $INSTALL_DIR/.env
-    chmod 600 $INSTALL_DIR/data/ssl/private/key.pem
+    chmod 600 $INSTALL_DIR/.env 2>/dev/null || true
+    chmod 600 $INSTALL_DIR/data/ssl/private/key.pem 2>/dev/null || true
     
     log_info "Installation finalized"
 }
