@@ -12,7 +12,9 @@ import (
 func Init(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	dsn := buildDSN(cfg)
 	
-	// Настройка логгера GORM
+	log.Printf("🔗 Connecting to database: %s@%s:%s/%s", 
+		cfg.User, cfg.Host, cfg.Port, cfg.DBName)
+	
 	gormConfig := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	}
@@ -22,30 +24,23 @@ func Init(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		return nil, err
 	}
 	
-	// Получаем соединение с базой данных
+	// Get underlying sql.DB
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
 	
-	// Настройка пула соединений
+	// Connection pool settings
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	
-	// Auto migrate моделей
-	err = db.AutoMigrate(
-		&User{},
-		&VPNConfig{},
-		&ApiKey{},
-		&Payment{},
-		&Server{},
-	)
-	if err != nil {
+	// Test connection
+	if err := sqlDB.Ping(); err != nil {
 		return nil, err
 	}
 	
-	log.Println("✅ Database connection established")
+	log.Println("✅ Database connection established successfully")
 	return db, nil
 }
 
@@ -56,63 +51,4 @@ func buildDSN(cfg config.DatabaseConfig) string {
 		" dbname=" + cfg.DBName +
 		" port=" + cfg.Port +
 		" sslmode=" + cfg.SSLMode
-}
-
-// Модели базы данных
-type User struct {
-	ID           string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Email        string    `gorm:"uniqueIndex;not null"`
-	Username     string    `gorm:"not null"`
-	PasswordHash string    `gorm:"not null"`
-	Status       string    `gorm:"default:'active'"`
-	TrafficLimit int64     `gorm:"default:1073741824"` // 1GB в байтах
-	TrafficUsed  int64     `gorm:"default:0"`
-	ExpireDate   time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-type VPNConfig struct {
-	ID        string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	UserID    string    `gorm:"not null;index"`
-	Protocol  string    `gorm:"not null"` // vless, vmess, trojan
-	Config    string    `gorm:"type:text;not null"`
-	IsActive  bool      `gorm:"default:true"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type ApiKey struct {
-	ID        string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Name      string    `gorm:"not null"`
-	Key       string    `gorm:"uniqueIndex;not null"`
-	Secret    string    `gorm:"not null"`
-	Type      string    `gorm:"not null"` // read, write, admin
-	IsActive  bool      `gorm:"default:true"`
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	LastUsed  time.Time
-}
-
-type Payment struct {
-	ID          string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	UserID      string    `gorm:"not null;index"`
-	Amount      float64   `gorm:"not null"`
-	Currency    string    `gorm:"default:'RUB'"`
-	Status      string    `gorm:"default:'pending'"` // pending, completed, failed
-	PaymentID   string    `gorm:"uniqueIndex"`
-	Provider    string    `gorm:"not null"` // yookassa, cloudpayments
-	CreatedAt   time.Time
-	CompletedAt time.Time
-}
-
-type Server struct {
-	ID          string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Name        string    `gorm:"not null"`
-	Hostname    string    `gorm:"not null"`
-	IPAddress   string    `gorm:"not null"`
-	Status      string    `gorm:"default:'online'"` // online, offline, maintenance
-	Location    string    `gorm:"not null"`
-	LoadPercent int       `gorm:"default:0"`
-	LastUpdate  time.Time
 }
