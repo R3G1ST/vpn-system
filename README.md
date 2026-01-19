@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/xferant/vpn-system/main/docs/images/logo.svg" width="400" alt="Xferant VPN">
 </p>
 
-<h1 align="center">Xferant VPN Management System</h1>
+<h1 align="center">(beta test) Xferant VPN Management System</h1>
 
 <p align="center">
   <strong>Мощная система управления VPN серверами с современной веб-панелью и Telegram ботом</strong>
